@@ -1,62 +1,118 @@
 import React, { useState } from 'react';
 
 const SVGTest: React.FC = () => {
+    let pinchZoomDistance: number;
 
     const [scale, setScale] = useState(1);
     const [pos, setPos] = useState({x:-20, y:-20});
     const [offset, setOffset] = useState({x: 0, y: 0});
 
-    const [isDragging, setIsDragging] = useState(false);
+    const [isDragging, setDragging] = useState(false);
 
-    const onMouseDown = (ev: React.MouseEvent<SVGElement, MouseEvent>) => {
-        setIsDragging(true);
-
+    const getClientCoords = (x: number, y: number): {cx:number, cy:number} => {
         const rect: ClientRect = document.getElementsByClassName('svg')[0].getBoundingClientRect();
-        let nx = (ev.clientX - rect.left);
-        let ny = (ev.clientY - rect.top);
-
-        setOffset({x:nx, y:ny});
-
-        ev.preventDefault();
+        return { 
+            cx: x - rect.left, 
+            cy: y - rect.top
+        };
     };
 
-    const onMouseMove = (ev: React.MouseEvent<SVGElement, MouseEvent>) => {
-        if (!isDragging) return;
-        
-        const rect: ClientRect = document.getElementsByClassName('svg')[0].getBoundingClientRect();
+    const dragStart = (x: number, y: number): void => {
+        setDragging(true);
 
-        const newOffsetX = (ev.clientX - rect.left);
-        const nx = pos.x + newOffsetX - offset.x;
+        const {cx, cy} = getClientCoords(x, y); 
 
-        const newOffsetY = (ev.clientY - rect.top);
-        const ny = pos.y + newOffsetY - offset.y;
+        setOffset({x:cx, y:cy});
+    };
+
+    const dragMove = (x: number, y: number): void => {
+        const {cx, cy} = getClientCoords(x, y);
+
+        const nx = pos.x + cx - offset.x;
+        const ny = pos.y + cy - offset.y;
 
         setPos({x:nx, y:ny});
-        setOffset({x:newOffsetX, y:newOffsetY});
-
-        ev.preventDefault();
+        setOffset({x:cx, y:cy});
     };
 
-    const onMouseUp = (ev: React.MouseEvent<SVGElement, MouseEvent>) => {
-        setIsDragging(false);
-
-        ev.preventDefault();
-    };
-
-    const onWheel = (ev: React.WheelEvent<SVGElement>) => {
-        const newScale = scale * (1.0 - (ev.deltaY / 1000));
+    const zoom = (x:number, y:number, deltaY:number): void => {
+        const newScale = scale * (1.0 - (deltaY / 1000));
         const scaleDelta = newScale / scale;
 
-        const rect: ClientRect = document.getElementsByClassName('svg')[0].getBoundingClientRect();
+        const {cx, cy} = getClientCoords(x, y);
 
-        let nx = (ev.clientX - rect.left) - (window.innerWidth / 2);
+        let nx = cx - (window.innerWidth / 2);
         nx = scaleDelta * (pos.x - nx) + nx;
 
-        let ny = (ev.clientY - rect.top) - (window.innerHeight / 2) - 10;
+        let ny = cy - (window.innerHeight / 2) - 10;
         ny = scaleDelta * (pos.y - ny) + ny;
         
         setScale(newScale);
         setPos({x:nx, y:ny});
+    }
+
+    const onMouseDown = (ev: React.MouseEvent<SVGElement, MouseEvent>) => {
+        dragStart(ev.clientX, ev.clientY);
+    };
+
+    const onMouseMove = (ev: React.MouseEvent<SVGElement, MouseEvent>) => {
+        if (!isDragging) return;
+
+        dragMove(ev.clientX, ev.clientY);        
+    };
+
+    const onMouseUp = (ev: React.MouseEvent<SVGElement, MouseEvent>) => {
+        setDragging(false);
+    };
+
+    const onWheel = (ev: React.WheelEvent<SVGElement>) => {
+        zoom(ev.clientX, ev.clientY, ev.deltaY);
+    };
+
+    const onTouchStart = (ev: React.TouchEvent<SVGElement>) => {
+        let touches: React.Touch[] = Array.from(ev.touches)
+        
+        let x: number = touches
+            .map(t => t.pageX)
+            .reduce((acc, curr) => acc + curr) / touches.length;
+        let y: number = touches
+            .map(t => t.pageY)
+            .reduce((acc, curr) => acc + curr) / touches.length;
+
+        dragStart(x, y);
+
+        if (ev.touches.length === 2) {
+            let xDelta = ev.touches[0].pageX - ev.touches[1].pageX;
+            let yDelta = ev.touches[0].pageY - ev.touches[1].pageY;
+            pinchZoomDistance = Math.sqrt(xDelta * xDelta + yDelta * yDelta);
+        }
+    };
+
+    const onTouchMove = (ev: React.TouchEvent<SVGElement>) => {
+        if (!isDragging) return;
+
+        let touches: React.Touch[] = Array.from(ev.touches);
+
+        let x: number = touches
+            .map(t => t.pageX)
+            .reduce((acc, curr) => acc + curr) / touches.length;
+        let y: number = touches
+            .map(t => t.pageY)
+            .reduce((acc, curr) => acc + curr) / touches.length;
+
+        dragMove(x, y);
+
+        if(ev.touches.length === 2) {
+            let xDelta = ev.touches[0].pageX - ev.touches[1].pageX;
+            let yDelta = ev.touches[0].pageY - ev.touches[1].pageY;
+            let newPinchZoomDistance = Math.sqrt(xDelta * xDelta + yDelta * yDelta);
+            zoom(x, y, scale * newPinchZoomDistance / pinchZoomDistance);
+            pinchZoomDistance = newPinchZoomDistance;
+        }
+    };
+
+    const onTouchEnd = (ev: React.TouchEvent) => {
+        setDragging(false);
     };
 
     return (
@@ -68,7 +124,11 @@ const SVGTest: React.FC = () => {
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
-            onWheel={onWheel}>
+            onWheel={onWheel}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+            onTouchCancel={onTouchEnd}>
             <g transform={`matrix(1,0,0,1,${window.innerWidth / 2},${window.innerHeight / 2 - 10})`}>
                 <g transform={`matrix(${scale},0,0,${scale},${pos.x},${pos.y})`}>
                     <rect 
